@@ -1,0 +1,198 @@
+#!/bin/bash -eu
+
+info()	{ echo "**" "${@}" ; }
+trace()	{ echo "++" "${@}" ; eval "$@" ; }
+die()	{ echo "!!" "${@:-Fatal Error}" ; exit 1 ; }
+
+# --- Embedded perl aggregator script -----------------------------------------
+#
+# If $1 is "AGGREGATE", run this here-doc perl script. 
+# This allows us to avoid having to have it in an auxiliary file.
+
+if [ "${1:-}" = AGGREGATE ] ; then
+  shift
+  perl -- - "$@" <<-'EOD'
+	#!/usr/bin/perl
+	use warnings ;
+	use strict ;
+	my $th = 0 ;
+	my $flow = 0 ;
+	while (<>)
+	  {
+	  next unless /(\d+) bytes .* ([.\d]+) s,/ ;
+	  print ">> $_" ; 
+	  my $bytes = $1 ;
+	  my $seconds = $2 ;
+	  $th++ ; $flow += $bytes / 1000/1000/1000 / $seconds ;
+	  }
+	printf "Aggregate %d Th %.2f GBps\n\n", $th, $flow ;
+	EOD
+  exit
+fi
+
+# --- Get NIter from the command line -----------------------------------------
+#
+# The number of complete iterations of the list of trials to run.
+# Defaults to one.
+
+NIter=${1:-1}
+[[ $NIter =~ ^([0-9]+)$ ]] || die Bad NIter: $NIter
+## info NIter: $NIter
+
+# --- Setup temp dir ----------------------------------------------------------
+#
+# Set up a temporary directory to hold intermediate files
+
+TMPDIR=/run/user/$UID/DDRead.$$
+mkdir -p $TMPDIR || die Cannot mkdir $TMPDIR
+## trap "rm -rf $TMPDIR ; exit" 0 1 2 3 15
+
+# --- Auxiliary fn ------------------------------------------------------------
+
+Lb2HSz() # Return the human readable form of 2**n bytes
+  {
+  sz=$((2**$1))
+  if   (($sz >= 1024*1024*1024)) ; then	sz="$(($sz/1024/1024/1024))GiB"
+  elif (($sz >= 1024*1024)) ; then	sz="$(($sz/1024/1024))MiB"
+  elif (($sz >= 1024)) ; then		sz="$(($sz/1024))KiB"
+  else					sz="${sz}B"
+  fi
+  echo $sz
+  }
+
+# --- Locate test data directory and files ------------------------------------
+#
+# There must be a symbolic link DD w/in the current directory pointing
+# to the actual directory where the test data files were created.
+# Within thia, there should be subdirectories and files $DDir/<LL>/<NNNN> 
+# where <LL> is the log_2 filesize and <NNNN> is a serial sequence number.
+# See the DDLayout script for more info on the creation of these files.
+#
+# The list of files for filesize <LL> is stored in the array FileList<LL>.
+# Since we are trying to test for general use, the list of files for each
+# size group is shuffled to avoid any sequential access synergies, and
+# will be used in testing in a round-robin fashion to avoid caching.
+
+DDir=DD
+[ -L $DDir -a -d $DDir ] || die No data directory link DD found
+
+FileSzLbList=()
+shopt -s extglob nullglob
+for d in $DDir/+([0-9]) ; do
+  FileSzLbList+=( $(basename $d) )
+done
+## info "FileSzLbList: ${#FileSzLbList[@]} ( ${FileSzLbList[@]} )"
+(( ${#FileSzLbList[@]} > 0 )) || die No data sub-directories found
+
+for FileSzLb in ${FileSzLbList[@]} ; do
+  declare -n FileList="FileList$FileSzLb"
+  FileList=($DDir/$FileSzLb/+([0-9]))
+  (( ${#FileList[@]} > 0 )) ||  ## ?? > $MaxTh
+    die No data files found for FileSzLb=$FileSzLb
+  # if paranoid, we could verify the size of all these files...
+  FileList=($(shuf -e ${FileList[@]}))
+done
+
+for Lb in ${FileSzLbList[@]} ; do
+  declare -n FL="FileList$Lb"
+  ## info FileList$Lb: ${#FL[@]} $(Lb2HSz $Lb) files
+  ## for f in ${FL[@]} ; do info "  $f" ; done
+done
+
+# --- Set block size list -----------------------------------------------------
+#
+# Set the list of block sizes (log_2) to test ranging from 512B to 1MiB
+# Warning! Block sizes smaller than the filesystem quanta will fail
+# when used w/ the dd iflag=direct option!
+
+BlkSzLbList=( 12 14 16 18 20 ) # 4KiB 16KiB 64KiB 2564KiB 1MiB
+
+## for Lb in ${BlkSzLbList[@]} ; do
+##   info BlockSz: $(Lb2HSz $Lb)
+## done
+
+# --- Set thread count list ---------------------------------------------------
+#
+# Set the list of possible thread counts to test ranging from 1 to 48.
+
+NThList=(1 2 3 4 5 6 7 8 10 12 14 16 18 20 22 24 28 32 36 40 44 48)
+## NThList+=(52 56 60 64 68 72)
+
+# --- Function to run a trial -------------------------------------------------
+#
+# The following function runs a DDRead trial for a given filesize, blocksize,
+# direct/buffered setting and thread count.  The results are appended to an
+# output file labeled w/ the filesize, blocksize, and direct/buffered setting.
+
+RunTrial()
+  {
+  FileSzLb=$1
+  BlkSzLb=$2
+  Direct=$3
+  NTh=$4
+
+  # -- Setup output file
+  (( ${Direct} )) && db="d" || db="b"
+  printf -v Output "%02d-%02d%s.out" $FileSzLb $BlkSzLb $db
+  ## info Output: $Output
+
+  # -- Timestamp/label output
+  echo == \
+    $(date +'%F %T') -- \
+    $(Lb2HSz $FileSzLb) File, \
+    $(Lb2HSz $BlkSzLb) Block \
+    $( (( ${Direct} )) && echo "Direct" || echo "Buffered" ), \
+    $NTh threads \
+    | tee -a $Output
+
+  declare -n FileList="FileList$FileSzLb"
+  (( $Direct )) && IFlags=direct || IFlags=nocache
+
+  trace sysctl -wq vm.drop_caches=3 \; sleep 2
+
+  RFs=()
+  for ((Th=1 ; Th<=NTh ; Th++)) ; do
+    DF=${FileList[0]} ; FileList=( ${FileList[@]:1} ${FileList[0]} )
+    DD="dd if=$DF bs=$((2**BlkSzLb)) iflag=$IFlags of=/dev/null"
+    printf -v RF "$TMPDIR/R%02d" $Th ;
+    echo "++ $DD" | tee -a $Output 
+    $DD >& $RF &
+    RFs+=($RF)
+  done
+  echo "++ wait x$NTh" ; wait
+  $0 AGGREGATE ${RFs[@]} | tee -a $Output
+  }
+
+# --- Assemble list of trials -------------------------------------------------
+#
+# Again, since we are trying to test general usage, we want to avoid any
+# possibly cache/buffer/adjacancy/sequencing synergies, so we assemble a
+# list of trial that we wish to run and then run them in a randomized order.
+
+for FileSzLb in ${FileSzLbList[@]} ; do
+for BlkSzLb  in ${BlkSzLbList[@]} ; do
+for Direct   in 1 0 ; do
+for NTh      in ${NThList[@]} ; do
+  TrialList+=($FileSzLb:$BlkSzLb:$Direct:$NTh)
+done
+done
+done
+done
+
+# --- Run the list of trials NIter times --------------------------------------
+#
+# Run the list of trial NIter times, shuffling the order of tests each time.
+
+for (( iter=1 ; $iter <= $NIter ; iter++ )) ; do
+  i=0 ; NTrials=${#TrialList[@]}
+  TrialList=($(shuf -e ${TrialList[@]}))
+  for Trial in "${TrialList[@]}" ; do
+    echo == Trial: $Trial == $((++i))/$NTrials $iter/$NIter
+    RunTrial ${Trial//:/ }
+  done
+done
+
+# -----------------------------------------------------------------------------
+exit 0 # ======================================================================
+
+

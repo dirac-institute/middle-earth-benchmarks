@@ -1,0 +1,96 @@
+#!/bin/perl
+use strict ;
+use warnings ;
+use Data::Dumper ;
+use File::Basename ;
+$Data::Dumper::Sortkeys = sub { [ sort {$a<=>$b} keys %{$_[0]} ] } ;
+
+my $title = "" ;
+
+my $pdir = "/run/user/$</plotdata" ;
+if (!-d $pdir) { mkdir $pdir or die "Cannot mkdir $pdir: $!\n" ; }
+
+my @pd ; # plot data files
+
+while (@ARGV) # datafiles
+  {
+  my $df = shift ;
+
+  my %Flow ; # @{$Flow{$th}} = GBps throughput data pts for $th threads
+
+  open DF, "<", $df or die "Cannot open $df: $!\n" ;
+  while (<DF>)
+    {
+    chomp ;
+    next unless /^Aggregate/ ;
+    /^Aggregate (\d+) Th \s*([.\d]+) GBps/
+      or die "Bad data line! ($df:$.)\n>> $_\n" ;
+    push @{$Flow{$1}}, $2 ;
+    }
+  close DF ;
+
+  my $tag = $df ;
+  $tag =~ s|/|-|g ;
+  $tag =~ s|\.out$|| ;
+  push @pd, my $pd = "$pdir/$tag.pd" ;
+
+  open PD, ">", $pd or die "Cannot open $pd: $!\n" ;
+  for my $th (sort {$a<=>$b} keys %Flow)
+    {
+    my @data = @{$Flow{$th}} ;
+    my $sum  = 0 ; $sum += $_ for @data ;
+    my $mean = $sum/@data ;
+    my $sds  = 0 ; $sds += ($_-$mean)**2 for @data ;
+    my $sdev = sqrt( $sds/@data );
+    printf PD "%d %.2f %.2f\n", $th, $mean, $sdev ;
+    }
+  close PD or die "Error closing $pd $!\n" ;
+  }
+
+if (1) { open GP, "|gnuplot" or die "Cannot open |gnuplot: $!\n" ; }
+else   { open GP, "|cat" ; }
+
+print GP <<EOD ;
+set title "$title"
+set key outside right
+set term png size 600,400
+set term png size 1200,800
+set output 'Plot.png'
+set xlabel "Concurrent reads"
+set ylabel "Throuput GB/s"
+set style line 99 lc rgb "#eeeeee"
+set grid ls 99
+\$zero<<EOI
+0 0
+EOI
+\$linear<<EOI
+0 0
+63.2 18.0
+EOI
+\$twocable<<EOI
+0  9.6
+80 9.6
+EOI
+\$fourcable<<EOI
+0  19.2
+80 19.2
+EOI
+set linetype 98 pt 5 lw 1 lc rgb 'grey'
+set linetype 99 pt 5 lw 1 lc rgb '#00BB00'
+set xrange [0:32<*<100]
+set yrange [0:10<*<100]
+plot \\
+EOD
+for (@pd)
+  {
+  my $title = basename $_, ".pd" ;
+  print GP "'$_' with errorlines title '$title' , \\\n" ;
+  }
+print GP "\$zero with lines lt 98 notitle, \\\n" ;
+print GP "\$linear with lines lt 98 notitle noautoscale, \\\n" ;
+print GP "\$twocable with lines lt 99 notitle noautoscale, \\\n" ;
+print GP "\$fourcable with lines lt 99 notitle noautoscale, \\\n" ;
+print GP "\n" ;
+close GP ;
+
+__END__ # =====================================================================
