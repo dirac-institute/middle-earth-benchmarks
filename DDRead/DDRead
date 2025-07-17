@@ -102,8 +102,6 @@ done
 # --- Set block size list -----------------------------------------------------
 #
 # Set the list of block sizes (log_2) to test ranging from 512B to 1MiB
-# Warning! Block sizes smaller than the filesystem quanta will fail
-# when used w/ the dd iflag=direct option!
 
 BlkSzLbList=( 12 14 16 18 20 ) # 4KiB 16KiB 64KiB 2564KiB 1MiB
 
@@ -121,39 +119,34 @@ NThList=(1 2 3 4 5 6 7 8 10 12 14 16 18 20 22 24 28 32 36 40 44 48)
 # --- Function to run a trial -------------------------------------------------
 #
 # The following function runs a DDRead trial for a given filesize, blocksize,
-# direct/buffered setting and thread count.  The results are appended to an
-# output file labeled w/ the filesize, blocksize, and direct/buffered setting.
+# and thread count.  The results are appended to an output file labeled w/
+# the filesize, and blocksize.
 
 RunTrial()
   {
   FileSzLb=$1
   BlkSzLb=$2
-  Direct=$3
-  NTh=$4
+  NTh=$3
 
   # -- Setup output file
-  (( ${Direct} )) && db="d" || db="b"
-  printf -v Output "%02d-%02d%s.out" $FileSzLb $BlkSzLb $db
-  ## info Output: $Output
+  printf -v Output "%02d-%02d.out" $FileSzLb $BlkSzLb
 
   # -- Timestamp/label output
   echo == \
     $(date +'%F %T') -- \
     $(Lb2HSz $FileSzLb) File, \
-    $(Lb2HSz $BlkSzLb) Block \
-    $( (( ${Direct} )) && echo "Direct" || echo "Buffered" ), \
+    $(Lb2HSz $BlkSzLb) Block, \
     $NTh threads \
     | tee -a $Output
 
   declare -n FileList="FileList$FileSzLb"
-  (( $Direct )) && IFlags=direct || IFlags=nocache
 
   trace sysctl -wq vm.drop_caches=3 \; sleep 2
 
   RFs=()
   for ((Th=1 ; Th<=NTh ; Th++)) ; do
     DF=${FileList[0]} ; FileList=( ${FileList[@]:1} ${FileList[0]} )
-    DD="dd if=$DF bs=$((2**BlkSzLb)) iflag=$IFlags of=/dev/null"
+    DD="dd if=$DF bs=$((2**BlkSzLb)) iflag=nocache of=/dev/null"
     printf -v RF "$TMPDIR/R%02d" $Th ;
     echo "++ $DD" | tee -a $Output 
     $DD >& $RF &
@@ -171,10 +164,8 @@ RunTrial()
 
 for FileSzLb in ${FileSzLbList[@]} ; do
 for BlkSzLb  in ${BlkSzLbList[@]} ; do
-for Direct   in 1 0 ; do
 for NTh      in ${NThList[@]} ; do
-  TrialList+=($FileSzLb:$BlkSzLb:$Direct:$NTh)
-done
+  TrialList+=($FileSzLb:$BlkSzLb:$NTh)
 done
 done
 done
