@@ -11,7 +11,7 @@ PUSH=DDLayout DDRead Makefile
 push:	; rsync -ptvSH ${PUSH} ${REMOTE}/
 
 purge:	; rm -rf *.out
-fetch:	; rsync -avSH ${REMOTE}/\*.out ./
+fetch:	; rsync -avSH ${REMOTE}/{cfg.\*,\*.out} ./
 plot:	fetch ; ./Plot *.out
 view:	; eog Plot.png
 watch:	; watch -n60 make plot
