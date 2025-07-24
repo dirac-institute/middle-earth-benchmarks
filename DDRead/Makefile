@@ -10,7 +10,7 @@ remote:	; @echo ${REMOTE}
 PUSH=DDLayout DDRead Makefile
 push:	; rsync -ptvSH ${PUSH} ${REMOTE}/
 
-purge:	; rm -rf *.out
+purge:	; rm -rf *.out Plot.png
 fetch:	; rsync -avSH ${REMOTE}/{cfg.\*,\*.out} ./
 plot:	fetch ; ./Plot *.out
 view:	; eog Plot.png
