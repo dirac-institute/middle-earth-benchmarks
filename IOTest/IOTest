@@ -162,6 +162,7 @@ RunFio()
 	## === JobFile: $Label ===
 	[global]
 	  create_only=\${CREATE_ONLY} ;
+	  randrepeat=0		; vary random numbers across runs
 	  time_based		; loop until runtime
 	  runtime=120s		; limit runtime
 	  ramp_time=4s		; ramp-up time
