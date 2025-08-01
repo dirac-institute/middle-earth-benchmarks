@@ -9,7 +9,7 @@ REMOTE=root@${REM_HOST}:${REM_BASE}/${REM_INST}
 remote:	; @echo ${REMOTE}
 
 PUSH=IOTest
-push:	; rsync -ptvSH ${PUSH} ${REMOTE}/
+push:	; rsync -ptvSHL ${PUSH} ${REMOTE}/
 fetch:	; rsync -avSH ${REMOTE}/{cfg.\*,\*.out} ./
 
 ## To control RAID background tasks:
