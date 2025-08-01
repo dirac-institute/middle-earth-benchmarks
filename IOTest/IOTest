@@ -100,7 +100,7 @@ for arg in "$@" ; do
     debug FileArg: $file
     [[ -f $file ]] || die "File not found: $file"
     [[ -r $file ]] || die "File not readable: $file"
-    while read spec ; do JobSpecs+=($spec) ; done <$file
+    while read spec ; do JobSpecs+=(${spec/\#*/}) ; done <$file
   else
     spec="$arg"
     debug SpecArg: $spec
