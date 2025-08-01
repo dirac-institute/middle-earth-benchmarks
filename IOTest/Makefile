@@ -8,7 +8,7 @@ REM_INST=$(notdir ${PWD:=})
 REMOTE=root@${REM_HOST}:${REM_BASE}/${REM_INST}
 remote:	; @echo ${REMOTE}
 
-PUSH=IOTest
+PUSH=IOTest testset.*
 push:	; rsync -ptvSHL ${PUSH} ${REMOTE}/
 fetch:	; rsync -avSH ${REMOTE}/{cfg.\*,\*.out} ./
 
