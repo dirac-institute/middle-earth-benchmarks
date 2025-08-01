@@ -159,6 +159,7 @@ if ($stat eq "bw")
 elsif ($stat eq "iops")
   {
   $ylabel = "kIOPS" ;
+  $yrange = "[0:*]" ;
   }
 
 elsif ($stat eq "lat")
