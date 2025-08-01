@@ -160,6 +160,7 @@ RunFio()
   cat <<-EOD >$JobFile
 	## === JobFile: $Label ===
 	[global]
+	  create_only=\${CREATE_ONLY} ;
 	  time_based		; loop until runtime
 	  runtime=120s		; limit runtime
 	  ramp_time=4s		; ramp-up time
@@ -199,7 +200,10 @@ RunFio()
   if [[ $dryrun ]] ; then
     if (( $verbose >= 2 )) ; then cat $JobFile ; fi
   else
-    fio $JobFile --output-format=normal,json >>$OutFile
+    CREATE_ONLY=1 fio $JobFile --output-format=normal >>$OutFile
+    SECONDS=0
+    CREATE_ONLY=0 fio $JobFile --output-format=normal,json >>$OutFile
+    echo == Elapsed Time: ${SECONDS}s >>$OutFile
   fi
   }
 
@@ -224,47 +228,55 @@ RunDDR()
 
   info Run $Label
 
-  FileList=( $DDir/fio:$FileSz:* )
-  tnj=0 ; for nj in ${NJ[@]} ; do ((tnj=tnj+nj)) ; done
-  (( ${#FileList[@]} >= $tnj )) || die "Insufficient files of length $FileSz!" 
+  if [[ $dryrun ]] ; then
 
-  for nj in ${NJ[@]} ; do
+    if (( $verbose >= 2 )) ; then
+      for nj in ${NJ[@]} ; do
+	echo == \
+	  $(date +'%F %T') -- \
+	  $FileSz File, \
+	  $BlkSz Block ${BorD^}, \
+	  $nj threads
+      done
+    fi
 
-    if [[ $dryrun ]] ; then
+  else
 
-      echo == \
-	$(date +'%F %T') -- \
-	$FileSz File, \
-	$BlkSz Block ${BorD^}, \
-	$nj threads
+    FileList=( $DDir/fio:$FileSz:* )
+    tj=0 ; for nj in ${NJ[@]} ; do ((tj=tj+nj)) ; done
+    (( ${#FileList[@]} >= $tj )) || die "Insufficient files of length $FileSz!" 
 
-    else
+    SECONDS = 0
+
+    for nj in ${NJ[@]} ; do
 
       echo == \
 	$(date +'%F %T') -- \
 	$FileSz File, \
 	$BlkSz Block ${BorD^}, \
 	$nj threads \
-	| tee -a $Output
+	>> $OutFile
 
-      trace sysctl -wq vm.drop_caches=3 \; sleep 2
+	sysctl -wq vm.drop_caches=3 ; sleep 2
 
-      RFs=()
-      [ $BorD = "direct" ] && IFlags=direct || IFlags=nocache
-      for ((Th=1 ; Th<=nj ; Th++)) ; do
-	DF=${FileList[0]} ; FileList=( ${FileList[@]:1} ${FileList[0]} )
-	DD="dd if=$DF bs=$BlkSz iflag=$IFlags of=/dev/null"
-	printf -v RF "$TMPDIR/R%02d" $Th ;
-	echo "++ $DD" | tee -a $Output 
-	$DD >& $RF &
-	RFs+=($RF)
-      done
-      echo "++ wait x$nj" ; wait
-      $0 AGGREGATE ${RFs[@]} | tee -a $Output
+	RFs=()
+	[ $BorD = "direct" ] && IFlags=direct || IFlags=nocache
+	for ((Th=1 ; Th<=nj ; Th++)) ; do
+	  DF=${FileList[0]} ; FileList=( ${FileList[@]:1} ${FileList[0]} )
+	  DD="dd if=$DF bs=$BlkSz iflag=$IFlags of=/dev/null"
+	  printf -v RF "$TMPDIR/R%02d" $Th ;
+	  echo "++ $DD" >> $OutFile 
+	  $DD >& $RF &
+	  RFs+=($RF)
+	done
+	echo "++ wait x$nj" >> $OutFile ; wait
+	$0 AGGREGATE ${RFs[@]} >> $OutFile
 
-    fi
+    done
 
-  done
+    echo == Elapsed Time: ${SECONDS}s >>$OutFile
+
+  fi
   }
 
 # --- Process Job Specs -------------------------------------------------------
