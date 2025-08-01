@@ -1,68 +1,185 @@
 #!/bin/perl
 use strict ;
 use warnings ;
+
+use JSON ;			## dnf install perl-JSON
 use Data::Dumper ;
 use File::Basename ;
-$Data::Dumper::Sortkeys = sub { [ sort {$a<=>$b} keys %{$_[0]} ] } ;
+use POSIX qw[strftime] ;
 
-my $title = "" ;
-
+my @pd ; # plot files
 my $pdir = "/run/user/$</plotdata" ;
 if (!-d $pdir) { mkdir $pdir or die "Cannot mkdir $pdir: $!\n" ; }
 
-my @pd ; # plot data files
+@ARGV or die "Usage: Plot bw|iops|lat datafile ...\n" ;
 
-while (@ARGV) # datafiles
+my $stat = shift @ARGV ;
+my %stat = map { $_, 1 } qw [ bw iops lat ] ;
+die "Bad statistic request: $stat!\n" unless $stat{$stat} ;
+
+foreach my $file (@ARGV)
   {
-  my $df = shift ;
+  next unless -s $file ;
+  print "Ingesting: $file \n" ;
 
-  my %Flow ; # @{$Flow{$th}} = GBps throughput data pts for $th threads
+  my %data ; ## @{$Data{$th}} = data points for $th threads
 
-  open DF, "<", $df or die "Cannot open $df: $!\n" ;
-  while (<DF>)
+  # --- read data ---
+
+  if ($file =~ /^ddr:/)
     {
-    chomp ;
-    next unless /^Aggregate/ ;
-    /^Aggregate (\d+) Th \s*([.\d]+) GBps/
-      or die "Bad data line! ($df:$.)\n>> $_\n" ;
-    push @{$Flow{$1}}, $2 ;
+    next unless $stat eq "bw" ;
+    open DDR, "<", $file or die "Cannot open $file: $!\n" ;
+    while (<DDR>)
+      {
+      chomp ;
+      next unless /^Aggregate/ ;
+      /^Aggregate (\d+) Th \s*([.\d]+) GBps/
+	or die "Bad data line! ($file:$.)\n>> $_\n" ;
+      push @{$data{$1}}, $2 ;
+      }
+    close DDR ;
     }
-  close DF ;
 
-  my $tag = $df ;
+  elsif ($file =~ /^fio:/)
+    {
+    open FIO, $file or die "Cannot open $file: $!\n" ;
+    my $json ;
+    while (<FIO>)
+      {
+      $json .= $_ if /^{/../^}/ ;
+      if (/^}/)
+        {
+	my $fio = decode_json $json or die "Error decoding $file\n" ;
+	my $device = $fio->{"global options"}{filename} ;
+	my $timestamp = strftime "%F %T", localtime $fio->{timestamp} ;
+
+	for my $job (@{$fio->{jobs}})
+	  {
+	  my $jobname = $job->{jobname} ; ## print "Job: [$jobname]\n" ;
+	  die "Error in job [$jobname]\n" if $job->{error} ;
+
+	  ## Job Options:
+	  my $rw	= $job->{"job options"}{rw} ;		## read
+	  my $engine	= $job->{"job options"}{ioengine} ;	## sync
+	  my $iodepth	= $job->{"job options"}{iodepth} ;	## 1
+	  my $direct	= $job->{"job options"}{direct} ;	## 1
+	  my $bs	= $job->{"job options"}{bs} ;		## 4k
+	  my $numjobs	= $job->{"job options"}{numjobs} ;	## 1
+
+	  my ($min, $max, $mean, $stddev, $count) ;
+
+	  if ($stat eq "bw") # GB/s
+	    {
+	    my $s	= 1024/1_000_000_000 ;			# KiB/s
+	    $min	= $s*$job->{read}{bw_min} ;		# 2084864
+	    $max	= $s*$job->{read}{bw_max} ;		# 2648064
+	    $mean	= $s*$job->{read}{bw_mean} ;		# 2365096.9456
+	    $stddev	= $s*$job->{read}{bw_dev} ;		# 2369.756549
+	    $count	= $job->{read}{bw_samples} ;		# 5728
+	    }
+
+	  elsif ($stat eq "iops") # kIOPS
+	    {
+	    my $s	= 1/1_000 ;				# IOPS
+	    $min	= $s*$job->{read}{iops_min} ;		# 2036
+	    $max	= $s*$job->{read}{iops_max} ;		# 2586
+	    $mean	= $s*$job->{read}{iops_mean} ;		# 2309.6649
+	    $stddev	= $s*$job->{read}{iops_stddev} ;	# 2.314215
+	    $count	= $job->{read}{iops_samples} ;		# 5728
+	    }
+
+	  elsif ($stat eq "lat") # usec
+	    {
+	    my $s	= 1/1000 ;				# ns
+	    $min	= $s*$job->{read}{lat_ns}{min} ;	# 107333
+	    $max	= $s*$job->{read}{lat_ns}{max} ;	# 61317713
+	    $mean	= $s*$job->{read}{lat_ns}{mean} ;	# 20783212.9199
+	    $stddev	= $s*$job->{read}{lat_ns}{stddev} ;	# 14398279.8821
+	    $count	= $job->{read}{lat_ns}{N} ;		# 138603
+	    }
+
+	  push @{$data{$numjobs}}, $mean ;
+	  }
+
+        $json = "" ;
+	}
+      }
+    close FIO ;
+    }
+
+  else  { die "Unknown file type: $file\n" ; }
+
+  # --- make plot file ---
+
+  next unless %data ;
+
+  my $tag = $file ;
   $tag =~ s|/|-|g ;
   $tag =~ s|\.out$|| ;
   push @pd, my $pd = "$pdir/$tag.pd" ;
 
   open PD, ">", $pd or die "Cannot open $pd: $!\n" ;
-  for my $th (sort {$a<=>$b} keys %Flow)
+  for my $th (sort {$a<=>$b} keys %data)
     {
-    my @data = @{$Flow{$th}} ;
+    my @data = @{$data{$th}} ;
     my $sum  = 0 ; $sum += $_ for @data ;
     my $mean = $sum/@data ;
-    my $sds  = 0 ; $sds += ($_-$mean)**2 for @data ;
-    my $sdev = sqrt( $sds/@data );
-    printf PD "%d %.2f %.2f\n", $th, $mean, $sdev ;
+    my $sumdevsq  = 0 ; $sumdevsq += ($_-$mean)**2 for @data ;
+    my $stddev = sqrt( $sumdevsq/@data );
+    printf PD "%d %f %f\n", $th, $mean, $stddev ;
     }
   close PD or die "Error closing $pd $!\n" ;
+
   }
+
+# --- invoke gnuplot to plot data ---
+
+#foreach (@pd)
+#  {
+#  print "DATA: $_\n" ;
+#  system "/bin/cat", $_ ;
+#  }
+
+die "No data to plot!\n" unless @pd ;
 
 if (1) { open GP, "|gnuplot" or die "Cannot open |gnuplot: $!\n" ; }
 else   { open GP, "|cat" ; }
 
+my $ylabel = "???" ;
+my $xrange = "[0:8<*<100]" ;
+my $yrange ;
+
+if ($stat eq "bw")
+  {
+  $ylabel = "Bandwidth GB/s" ;
+  $yrange = "[0:20]" ;
+  }
+
+elsif ($stat eq "iops")
+  {
+  $ylabel = "kIOPS" ;
+  }
+
+elsif ($stat eq "lat")
+  {
+  $ylabel = "Latency us" ;
+  $yrange = "[0:2<*<5000]" ;
+  }
+
+else { die "Unknown statistic: $stat\n" ; }
+
 print GP <<EOD ;
-set title "$title"
 set key outside right
+set key title Left reverse
 set term png size 600,400
 set term png size 1200,800
-set output 'Plot.png'
-set xlabel "Concurrent reads"
-set ylabel "Throuput GB/s"
+set output 'plot.png'
+set xlabel "Concurrent jobs"
+set ylabel "$ylabel"
 set style line 99 lc rgb "#eeeeee"
 set grid ls 99
-\$zero<<EOI
-0 0
-EOI
+set xrange $xrange
 \$linear<<EOI
 0 0
 63.2 18.0
@@ -77,20 +194,33 @@ EOI
 EOI
 set linetype 98 pt 5 lw 1 lc rgb 'grey'
 set linetype 99 pt 5 lw 1 lc rgb '#00BB00'
-set xrange [0:32<*<100]
-set yrange [0:10<*<100]
-plot \\
 EOD
+print GP "set yrange $yrange\n" if $yrange ;
+
+for (my $l=1 ; $l <= @pd ; $l++)
+  {
+  print GP "set linetype $l pt 5\n" ;
+  }
+
+print GP "plot \\\n" ;
 for (@pd)
   {
   my $title = basename $_, ".pd" ;
   print GP "'$_' with errorlines title '$title' , \\\n" ;
   }
-print GP "\$zero with lines lt 98 notitle, \\\n" ;
-print GP "\$linear with lines lt 98 notitle noautoscale, \\\n" ;
-print GP "\$twocable with lines lt 99 notitle noautoscale, \\\n" ;
-print GP "\$fourcable with lines lt 99 notitle noautoscale, \\\n" ;
+
+if ($stat eq "bw")
+  {
+  ## print GP "\$zero with lines lt 98 notitle, \\\n" ;
+  print GP "\$linear with lines lt 98 notitle noautoscale, \\\n" ;
+  print GP "\$twocable with lines lt 99 notitle noautoscale, \\\n" ;
+  print GP "\$fourcable with lines lt 99 notitle noautoscale, \\\n" ;
+  }
+
 print GP "\n" ;
 close GP ;
 
 __END__ # =====================================================================
+__END__ # =====================================================================
+__END__ # =====================================================================
+
