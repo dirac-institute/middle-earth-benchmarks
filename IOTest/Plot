@@ -165,7 +165,7 @@ elsif ($stat eq "iops")
 elsif ($stat eq "lat")
   {
   $ylabel = "Latency us" ;
-  $yrange = "[0:2<*<5000]" ;
+  $yrange = "[0:2<*]" ;
   }
 
 else { die "Unknown statistic: $stat\n" ; }
