@@ -1,0 +1,303 @@
+#!/bin/bash -eu
+##
+## IOTest -- Unified script for fio and ddr tests
+##
+## Specifications for what to run can be entered either on the command
+## line or included in files specified on the command line (a prefix
+## of '@' denotes a file to read for test specs).
+##    
+## Specifications for fio tests are of the form:
+##    
+##   DDR Test Spec = ddr:$FileSz:$BlkSz:$BorD
+##   Fio Test Spec = fio:$IOType:$FileSz:$BlkSz:$BorD:$Engine:$IODepth
+##    
+## where
+##    
+##   IOType  = read | randread
+##   FileSz  = nnM ; typical: ( 2048M 1024M 512M 256M )
+##   BlkSz   = nnk ; typical: ( 1024k 256k 64k 16k 4k )
+##   BorD    = buffered | direct
+##   Engine  = sync | libaio
+##   IODepth = nn ; typical: ( 64 32 16 4 1 )
+##    
+## The number of concurrent jobs to test is specified
+## by the variable NJ defined near the end of the script;
+## typical: ( 1 2 3 4 5 6 7 8 10 12 14 16 18 20 22 24 )
+##
+## The results for a specified run are appended to a file
+## with the same name as the specification w/ '.out' appended
+## to the end.  (A specification may have an optional '.out'
+## suffix that will be ignored, allowing additional runs of
+## an existing spec just by naming the current output file.)
+
+# --- Short shell functions ---------------------------------------------------
+
+info()	{ echo "==" "${@}" ; }
+trace()	{ echo "++" "${@}" ; eval "$@" ; }
+die()	{ echo -e "!!" "${@:-Fatal Error}" ; exit 1 ; }
+debug()	{ if [[ $debug ]] ; then echo "%%" "${@}" ; fi }
+
+# --- Embedded perl aggregator script -----------------------------------------
+#
+# If $1 is "AGGREGATE", run this here-doc perl script. 
+# This allows us to avoid having to have it in an auxiliary file.
+
+if [ "${1:-}" = AGGREGATE ] ; then
+  shift
+  perl -- - "$@" <<-'EOD'
+	#!/usr/bin/perl
+	use warnings ;
+	use strict ;
+	my $th = 0 ;
+	my $flow = 0 ;
+	while (<>)
+	  {
+	  next unless /(\d+) bytes .* ([.\d]+) s,/ ;
+	  print ">> $_" ; 
+	  my $bytes = $1 ;
+	  my $seconds = $2 ;
+	  $th++ ; $flow += $bytes / 1000/1000/1000 / $seconds ;
+	  }
+	printf "Aggregate %d Th %.2f GBps\n\n", $th, $flow ;
+	EOD
+  exit
+fi
+
+# --- Parse command line ------------------------------------------------------
+#
+# Parse command line flags for debug, dryrun and verbose.
+# Command arguments are either jobspecs or jobspec-files
+# (prefixed w/ '@') containing one jobspec per line.
+# Collect all jobspecs into the JobSpecs[] array variable.
+
+UsageExit() { cat<<EOD ; exit 1
+Usage: $(basename $0) [-nvqd] jobspec|@jobfile ...
+EOD
+}
+
+debug=
+dryrun=
+verbose=1
+while getopts "nqvd" opt ; do
+  case $opt in
+    n) dryrun=1 ;;
+    q) verbose=0 ;;
+    v) verbose=$((verbose+1)) ;;
+    d) debug=$((debug+1)) ;;
+   \?) UsageExit ;;
+  esac
+done ; shift $((OPTIND-1))
+[[ $# > 0 ]] || UsageExit
+
+debug debug:   [$debug]
+debug dryrun:  [$dryrun]
+debug verbose: [$verbose]
+debug args: ; for arg in "$@" ; do debug "  [$arg]" ; done
+
+for arg in "$@" ; do
+  if [[ $arg =~ ^\@(.+) ]] ; then
+    file="${BASH_REMATCH[1]}"
+    debug FileArg: $file
+    [[ -f $file ]] || die "File not found: $file"
+    [[ -r $file ]] || die "File not readable: $file"
+    while read spec ; do JobSpecs+=($spec) ; done <$file
+  else
+    spec="$arg"
+    debug SpecArg: $spec
+    JobSpecs+=($spec)
+  fi
+done
+
+debug JobSpecs: ; for js in "${JobSpecs[@]}" ; do debug "  [$js]" ; done
+
+# --- Locate test data directory and device -----------------------------------
+#
+# There must be a symbolic link DD w/in the current directory pointing
+# to the actual directory where the test data files will be created.
+# From this, extract the underlying device via findmnt.
+
+DDir=DD
+[ -L $DDir -a -d $DDir ] || die No data directory link $DDir found
+DDev=$(findmnt -no source -T $DDir)
+
+# --- Setup temp dir ----------------------------------------------------------
+#
+# Set up a temporary directory to hold intermediate files
+
+TMPDIR=/run/user/$UID/ReadTest.$$
+mkdir -p $TMPDIR || die Cannot mkdir $TMPDIR
+trap "rm -rf $TMPDIR ; exit" 0 1 2 3 15
+
+# --- Function to run an fio trial set ----------------------------------------
+
+RunFio()
+  {
+  spec=${1:--}		# test spec
+  arg=(${spec//:/ })	# split on ':'
+
+  IOType=${arg[1]:--}	# 'read' | 'randread'
+  FileSz=${arg[2]:--}	# file-size: nM
+  BlkSz=${arg[3]:--}	# block-size: nk
+  BorD=${arg[4]:--}	# 'buffered' | 'direct'
+  Engine=${arg[5]:--}	# 'sync' | 'libaio'
+  IODepth=${arg[6]:-1}	# iodepth: n
+
+  DieBadSpec() { echo !! Bad Spec: $spec ; die $@ ; }
+
+  [[ $IOType  =~ ^(read|randread)$ ]]	|| DieBadSpec Bad IOType: $IOType
+  [[ $FileSz  =~ ^([0-9]+M|dev)$ ]]	|| DieBadSpec Bad FileSz: $FileSz
+  [[ $BlkSz   =~ ^[0-9]+k$ ]]		|| DieBadSpec Bad BlkSz: $BlkSz
+  [[ $BorD    =~ ^(buffered|direct)$ ]]	|| DieBadSpec Bad Buf/Dir: $BorD
+  [[ $Engine  =~ ^(sync|libaio)$ ]]	|| DieBadSpec Bad Engine: $Engine
+  [[ $IODepth =~ ^[0-9]+$ ]]		|| DieBadSpec Bad IODepth: $IODepth
+
+  if [[ $Engine == sync && $IODepth != 1 ]] ; then return ; fi
+  Label=fio:$IOType:$FileSz:$BlkSz:$BorD:$Engine:$IODepth
+  Label=${Label//sync:1/sync}
+  JobFile=$TMPDIR/$Label
+  OutFile=$Label.out
+
+  cat <<-EOD >$JobFile
+	## === JobFile: $Label ===
+	[global]
+	  time_based		; loop until runtime
+	  runtime=120s		; limit runtime
+	  ramp_time=4s		; ramp-up time
+	  group_reporting	; report by job groups
+	  ioengine=$Engine
+	  iodepth=$IODepth
+	  rw=$IOType
+	  bs=$BlkSz
+	  $BorD=1
+	EOD
+
+  for nj in ${NJ[@]} ; do
+
+    if [ $FileSz = "dev" ] ; then
+      cat <<-EOD >>$JobFile
+	[$Label::$nj]
+	  stonewall
+	  numjobs=$nj
+	  filename=$DDev
+	EOD
+
+    else
+      cat <<-EOD >>$JobFile
+	[$Label::$nj]
+	  stonewall
+	  numjobs=$nj
+	  filename_format=fio:$FileSz:$nj.\$jobnum.\$filenum
+	  directory=$DDir/
+	  size=$FileSz
+	EOD
+
+    fi
+
+  done
+
+  info Run $Label
+  if [[ $dryrun ]] ; then
+    if (( $verbose >= 2 )) ; then cat $JobFile ; fi
+  else
+    fio $JobFile --output-format=normal,json >>$OutFile
+  fi
+  }
+
+# --- Function to run a ddr trial set -----------------------------------------
+
+RunDDR()
+  {
+  spec=${1:--}		# test spec
+  arg=(${spec//:/ })	# split on ':'
+
+  FileSz=${arg[1]:--}	# file-size: nM
+  BlkSz=${arg[2]:--}	# block-size: nk
+  BorD=${arg[3]:--}	# 'buffered' | 'direct'
+
+  DieBadSpec() { echo !! Bad Spec: $spec ; die $@ ; }
+  [[ $FileSz =~ ^[0-9]+M$ ]]		|| DieBadSpec Bad FileSz: $FileSz
+  [[ $BlkSz  =~ ^[0-9]+k$ ]]		|| DieBadSpec Bad BlkSz: $BlkSz
+  [[ $BorD   =~ ^(buffered|direct)$ ]]	|| DieBadSpec Bad Buf/Dir: $BorD
+
+  Label=ddr:$FileSz:$BlkSz:$BorD
+  OutFile=$Label.out
+
+  info Run $Label
+
+  FileList=( $DDir/fio:$FileSz:* )
+  tnj=0 ; for nj in ${NJ[@]} ; do ((tnj=tnj+nj)) ; done
+  (( ${#FileList[@]} >= $tnj )) || die "Insufficient files of length $FileSz!" 
+
+  for nj in ${NJ[@]} ; do
+
+    if [[ $dryrun ]] ; then
+
+      echo == \
+	$(date +'%F %T') -- \
+	$FileSz File, \
+	$BlkSz Block ${BorD^}, \
+	$nj threads
+
+    else
+
+      echo == \
+	$(date +'%F %T') -- \
+	$FileSz File, \
+	$BlkSz Block ${BorD^}, \
+	$nj threads \
+	| tee -a $Output
+
+      trace sysctl -wq vm.drop_caches=3 \; sleep 2
+
+      RFs=()
+      [ $BorD = "direct" ] && IFlags=direct || IFlags=nocache
+      for ((Th=1 ; Th<=nj ; Th++)) ; do
+	DF=${FileList[0]} ; FileList=( ${FileList[@]:1} ${FileList[0]} )
+	DD="dd if=$DF bs=$BlkSz iflag=$IFlags of=/dev/null"
+	printf -v RF "$TMPDIR/R%02d" $Th ;
+	echo "++ $DD" | tee -a $Output 
+	$DD >& $RF &
+	RFs+=($RF)
+      done
+      echo "++ wait x$nj" ; wait
+      $0 AGGREGATE ${RFs[@]} | tee -a $Output
+
+    fi
+
+  done
+  }
+
+# --- Process Job Specs -------------------------------------------------------
+#
+# Process each of the specified job specs.
+# Each jobspec can have an appended '.out' which will be ignored.
+# This allows simply using the name of an output file to repeat its jobspec.
+# Examine the leading term of the job spec and hand off to the proper runner.
+
+NJ=( 1 2 3 4 5 6 7 8 10 12 14 16 18 20 22 24 )
+
+for js in "${JobSpecs[@]}" ; do
+  debug JobSpec: [$js]
+  js=${js%.out} # drop '.out' suffix so can use filename to repeat a job
+  case ${js%%:*} in
+    fio) RunFio $js ;;
+    ddr) RunDDR $js ;;
+    *)   die "Unrecognized test: ${js%%:*}"
+  esac
+done
+
+exit 0 # ======================================================================
+exit 0 # ======================================================================
+exit 0 # ======================================================================
+
+Label=fio:$IOType:$FileSz:$BlkSz:$BorD:$Engine:$IODepth
+Label=ddr:$FileSz:$BlkSz:$BorD
+
+IT=( read randread )
+FS=( 2048M 1024M 512M 256M )
+BS=( 1024k 256k 64k 16k 4k )
+BD=( buffered direct )
+EN=( libaio sync )
+IO=( 64 32 16 4 1 )
+NJ=( 1 2 3 4 5 6 7 8 10 12 14 16 18 20 22 24 )
+

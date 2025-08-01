@@ -1,21 +1,18 @@
 what:;	@echo "make what?  (...)"
-.PHONY:	remote push purge fetch plot view watch
+.PHONY:	remote push fetch
+## plot view watch
 
-REM_BASE=/local/DDRead
+REM_HOST=shire
+REM_BASE=/local/IOTest
 REM_INST=$(notdir ${PWD:=})
-#REM_HOST=$(notdir ${PWD:/${REM_INST}=})
-REMOTE=root@shire:${REM_BASE}/${REM_INST}
+REMOTE=root@${REM_HOST}:${REM_BASE}/${REM_INST}
 remote:	; @echo ${REMOTE}
 
-PUSH=DDLayout DDRead Makefile
+PUSH=IOTest
 push:	; rsync -ptvSH ${PUSH} ${REMOTE}/
-
-purge:	; rm -rf *.out Plot.png
 fetch:	; rsync -avSH ${REMOTE}/{cfg.\*,\*.out} ./
-plot:	fetch ; ./Plot *.out
-view:	; eog Plot.png
-watch:	; watch -n60 make plot
 
-## storcli /call/vall show bgi|cc
-## storcli /call/vall pause bgi|cc
-## storcli /call/vall resume bgi|cc
+## To control RAID background tasks:
+##   storcli /call/vall show bgi|cc
+##   storcli /call/vall pause bgi|cc
+##   storcli /call/vall resume bgi|cc
