@@ -2,11 +2,12 @@
 ##
 ## IOTest -- Unified script for fio and ddr tests
 ##
-## Specifications for what to run can be entered either on the command
-## line or included in files specified on the command line (a prefix
-## of '@' denotes a file to read for test specs).
+## Specifications for what jobs to run are entered via jobfiles
+## named on the command line (w/ one jobspec per line; '#' denote
+## comments to the end-of-line) or via literal jobspecs on the
+## command line prefixed by '+'.
 ##    
-## Specifications for fio tests are of the form:
+## Job specifications are of the form:
 ##    
 ##   DDR Test Spec = ddr:$FileSz:$BlkSz:$BorD
 ##   Fio Test Spec = fio:$IOType:$FileSz:$BlkSz:$BorD:$Engine:$IODepth
@@ -66,12 +67,12 @@ fi
 # --- Parse command line ------------------------------------------------------
 #
 # Parse command line flags for debug, dryrun and verbose.
-# Command arguments are either jobspecs or jobspec-files
-# (prefixed w/ '@') containing one jobspec per line.
+# Command arguments are either individual jobspecs (prefixed w/ '+')
+# or jobspec-files containing one jobspec per line (w/ '#' comments).
 # Collect all jobspecs into the JobSpecs[] array variable.
 
 UsageExit() { cat<<EOD ; exit 1
-Usage: $(basename $0) [-nvqd] jobspec|@jobfile ...
+Usage: $(basename $0) [-nvqd] +jobspec|jobfile ...
 EOD
 }
 
@@ -95,16 +96,16 @@ debug verbose: [$verbose]
 debug args: ; for arg in "$@" ; do debug "  [$arg]" ; done
 
 for arg in "$@" ; do
-  if [[ $arg =~ ^\@(.+) ]] ; then
-    file="${BASH_REMATCH[1]}"
+  if [[ $arg =~ ^\+(.+) ]] ; then
+    spec="${BASH_REMATCH[1]}"
+    debug SpecArg: $spec
+    JobSpecs+=($spec)
+  else
+    file="$arg"
     debug FileArg: $file
     [[ -f $file ]] || die "File not found: $file"
     [[ -r $file ]] || die "File not readable: $file"
     while read spec ; do JobSpecs+=(${spec/\#*/}) ; done <$file
-  else
-    spec="$arg"
-    debug SpecArg: $spec
-    JobSpecs+=($spec)
   fi
 done
 
