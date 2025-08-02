@@ -248,7 +248,7 @@ RunDDR()
     tj=0 ; for nj in ${NJ[@]} ; do ((tj=tj+nj)) ; done
     (( ${#FileList[@]} >= $tj )) || die "Insufficient files of length $FileSz!" 
 
-    SECONDS = 0
+    SECONDS=0
 
     for nj in ${NJ[@]} ; do
 
