@@ -21,12 +21,13 @@ foreach my $file (@ARGV)
   {
   next unless -s $file ;
   print "Ingesting: $file \n" ;
+  my $basename = basename $file ;
 
   my %data ; ## @{$Data{$th}} = data points for $th threads
 
   # --- read data ---
 
-  if ($file =~ /^ddr:/)
+  if ($basename =~ /^ddr:/)
     {
     next unless $stat eq "bw" ;
     open DDR, "<", $file or die "Cannot open $file: $!\n" ;
@@ -41,7 +42,7 @@ foreach my $file (@ARGV)
     close DDR ;
     }
 
-  elsif ($file =~ /^fio:/)
+  elsif ($basename =~ /^fio:/)
     {
     open FIO, $file or die "Cannot open $file: $!\n" ;
     my $json ;
