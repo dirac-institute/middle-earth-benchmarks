@@ -66,21 +66,23 @@ fi
 
 # --- Parse command line ------------------------------------------------------
 #
-# Parse command line flags for debug, dryrun and verbose.
+# Parse command line flags and arguments.
 # Command arguments are either individual jobspecs (prefixed w/ '+')
 # or jobspec-files containing one jobspec per line (w/ '#' comments).
 # Collect all jobspecs into the JobSpecs[] array variable.
 
 UsageExit() { cat<<EOD ; exit 1
-Usage: $(basename $0) [-nvqd] +jobspec|jobfile ...
+Usage: $(basename $0) [-b] [-nvqd] +jobspec|jobfile ...
 EOD
 }
 
+brief=
 debug=
 dryrun=
 verbose=1
-while getopts "nqvd" opt ; do
+while getopts "bnqvd" opt ; do
   case $opt in
+    b) brief=1 ;;
     n) dryrun=1 ;;
     q) verbose=0 ;;
     v) verbose=$((verbose+1)) ;;
@@ -158,6 +160,8 @@ RunFio()
   Label=${Label//sync:1/sync}
   JobFile=$TMPDIR/$Label
   OutFile=$Label.out
+  RunTime=$(( ${brief:-0} ? 30 :120 ))
+
 
   cat <<-EOD >$JobFile
 	## === JobFile: $Label ===
@@ -165,7 +169,7 @@ RunFio()
 	  create_only=\${CREATE_ONLY} ;
 	  randrepeat=0		; vary random numbers across runs
 	  time_based		; loop until runtime
-	  runtime=120s		; limit runtime
+	  runtime=${RunTime}s	; limit runtime
 	  ramp_time=4s		; ramp-up time
 	  group_reporting	; report by job groups
 	  ioengine=$Engine
@@ -289,7 +293,11 @@ RunDDR()
 # This allows simply using the name of an output file to repeat its jobspec.
 # Examine the leading term of the job spec and hand off to the proper runner.
 
-NJ=( 1 2 3 4 5 6 7 8 10 12 14 16 18 20 22 24 )
+if [[ $brief ]] ; then
+  NJ=( 1 2 3 4 5 6 7 8 10 12 )
+else
+  NJ=( 1 2 3 4 5 6 7 8 10 12 14 16 18 20 22 24 )
+fi
 
 for js in "${JobSpecs[@]}" ; do
   debug JobSpec: [$js]
