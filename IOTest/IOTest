@@ -14,7 +14,7 @@
 ##    
 ## where
 ##    
-##   IOType  = read | randread
+##   IOType  = read | randread | write | randwrite
 ##   FileSz  = nnM | dev ; typical: ( 2048M 1024M 512M 256M )
 ##   BlkSz   = nnk ; typical: ( 1024k 256k 64k 16k 4k )
 ##   BorD    = buffered | direct
@@ -136,7 +136,7 @@ RunFio()
   spec=${1:--}		# test spec
   arg=(${spec//:/ })	# split on ':'
 
-  IOType=${arg[1]:--}	# 'read' | 'randread'
+  IOType=${arg[1]:--}	# 'read' | 'randread' | 'write' | 'randwrite'
   FileSz=${arg[2]:--}	# file-size: nM
   BlkSz=${arg[3]:--}	# block-size: nk
   BorD=${arg[4]:--}	# 'buffered' | 'direct'
@@ -145,13 +145,14 @@ RunFio()
 
   DieBadSpec() { echo !! Bad Spec: $spec ; die $@ ; }
 
-  [[ $IOType  =~ ^(read|randread)$ ]]	|| DieBadSpec Bad IOType: $IOType
-  [[ $FileSz  =~ ^([0-9]+M|dev)$ ]]	|| DieBadSpec Bad FileSz: $FileSz
-  [[ $BlkSz   =~ ^[0-9]+k$ ]]		|| DieBadSpec Bad BlkSz: $BlkSz
-  [[ $BorD    =~ ^(buffered|direct)$ ]]	|| DieBadSpec Bad Buf/Dir: $BorD
-  [[ $Engine  =~ ^(sync|libaio)$ ]]	|| DieBadSpec Bad Engine: $Engine
-  [[ $IODepth =~ ^[0-9]+$ ]]		|| DieBadSpec Bad IODepth: $IODepth
+  [[ $IOType  =~ ^(rand)?(read|write)$ ]]  || DieBadSpec Bad IOType: $IOType
+  [[ $FileSz  =~ ^([0-9]+M|dev)$ ]]	   || DieBadSpec Bad FileSz: $FileSz
+  [[ $BlkSz   =~ ^[0-9]+k$ ]]		   || DieBadSpec Bad BlkSz: $BlkSz
+  [[ $BorD    =~ ^(buffered|direct)$ ]]	   || DieBadSpec Bad Buf/Dir: $BorD
+  [[ $Engine  =~ ^(sync|libaio)$ ]]	   || DieBadSpec Bad Engine: $Engine
+  [[ $IODepth =~ ^[0-9]+$ ]]		   || DieBadSpec Bad IODepth: $IODepth
 
+  if [[ $IOType =~ write && $FileSz =~ dev ]] ; then return ; fi
   if [[ $Engine == sync && $IODepth != 1 ]] ; then return ; fi
   Label=fio:$IOType:$FileSz:$BlkSz:$BorD:$Engine:$IODepth
   Label=${Label//sync:1/sync}
