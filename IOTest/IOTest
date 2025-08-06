@@ -15,7 +15,7 @@
 ## where
 ##    
 ##   IOType  = read | randread
-##   FileSz  = nnM ; typical: ( 2048M 1024M 512M 256M )
+##   FileSz  = nnM | dev ; typical: ( 2048M 1024M 512M 256M )
 ##   BlkSz   = nnk ; typical: ( 1024k 256k 64k 16k 4k )
 ##   BorD    = buffered | direct
 ##   Engine  = sync | libaio
