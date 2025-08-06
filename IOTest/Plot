@@ -148,19 +148,22 @@ if (1) { open GP, "|gnuplot" or die "Cannot open |gnuplot: $!\n" ; }
 else   { open GP, "|cat" ; }
 
 my $ylabel = "???" ;
-my $xrange = "[0:8<*<100]" ;
+my $xrange = "[0:8<*]" ;
+my $ycap = 0 ;
 my $yrange ;
 
 if ($stat eq "bw")
   {
   $ylabel = "Bandwidth GB/s" ;
-  $yrange = "[0:20]" ;
+  $yrange = "[0:*]" ;
+  $ycap   = 15.0 ; # PCIe Bandwidth
   }
 
 elsif ($stat eq "iops")
   {
   $ylabel = "kIOPS" ;
   $yrange = "[0:*]" ;
+  $ycap   = 168 ; # Exos X24 Random Read IOPS 
   }
 
 elsif ($stat eq "lat")
@@ -186,13 +189,9 @@ set xrange $xrange
 0 0
 63.2 18.0
 EOI
-\$twocable<<EOI
-0  9.6
-80 9.6
-EOI
-\$fourcable<<EOI
-0  19.2
-80 19.2
+\$ycap<<EOI
+0  $ycap
+80 $ycap
 EOI
 set linetype 98 pt 5 lw 1 lc rgb 'grey'
 set linetype 99 pt 5 lw 1 lc rgb '#00BB00'
@@ -211,12 +210,14 @@ for (@pd)
   print GP "'$_' with errorlines title '$title' , \\\n" ;
   }
 
+if ($ycap)
+  {
+  print GP "\$ycap with lines lt 99 notitle noautoscale, \\\n" ;
+  }
+
 if ($stat eq "bw")
   {
-  ## print GP "\$zero with lines lt 98 notitle, \\\n" ;
   print GP "\$linear with lines lt 98 notitle noautoscale, \\\n" ;
-  print GP "\$twocable with lines lt 99 notitle noautoscale, \\\n" ;
-  print GP "\$fourcable with lines lt 99 notitle noautoscale, \\\n" ;
   }
 
 print GP "\n" ;
