@@ -280,7 +280,11 @@ elsif ($stat eq "cslr")
 
 else { die "Unknown statistic: $stat\n" ; }
 
+use Cwd ;
+my $title = basename getcwd ;
+
 print GP <<EOD ;
+set title "$title"
 set key outside right
 set key title Left reverse
 set term png size 600,400
