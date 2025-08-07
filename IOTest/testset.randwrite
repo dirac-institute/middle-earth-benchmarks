@@ -1,0 +1,38 @@
+# ddr:$FileSz:$BlkSz:$BorD
+# fio:$IOType:$FileSz:$BlkSz:$BorD:$Engine:$IODepth
+# -------------------------------------------------
+# IOType  = read | randread | write | randwrite
+# FileSz  = nnM  | dev ; typical: ( 2048M 1024M 512M 256M )
+# BlkSz   = nnk ; typical: ( 1024k 256k 64k 16k 4k )
+# BorD    = buffered | direct
+# Engine  = sync | libaio
+# IODepth = nn ; typical: ( 16 8 4 2 1 )
+# NumJobs = Hardcoded: ( 1 2 3 4 5 6 7 8 10 12 ) -b brief
+# NumJobs = Hardcoded: ( 1 2 3 4 5 6 7 8 10 12 14 16 18 20 22 24 )
+
+fio:randwrite:256M:4k:direct:libaio:1
+fio:randwrite:256M:8k:direct:libaio:1
+fio:randwrite:256M:16k:direct:libaio:1
+fio:randwrite:256M:32k:direct:libaio:1
+fio:randwrite:256M:64k:direct:libaio:1
+fio:randwrite:256M:128k:direct:libaio:1
+fio:randwrite:256M:256k:direct:libaio:1
+
+fio:randwrite:256M:4k:direct:libaio:2
+fio:randwrite:256M:4k:direct:libaio:4
+fio:randwrite:256M:4k:direct:libaio:8
+fio:randwrite:256M:4k:direct:libaio:16
+
+fio:randwrite:256M:256k:direct:libaio:2
+fio:randwrite:256M:256k:direct:libaio:4
+fio:randwrite:256M:256k:direct:libaio:8
+fio:randwrite:256M:256k:direct:libaio:16
+
+# ---------------------------------
+##
+## ./Plot bw	fio:randwrite:256M:{?,??,???}k:direct:libaio:1.out \
+## 		fio:randwrite:256M:256k:direct:libaio:{2,4,8,16}.out
+## 
+## ./Plot iops	fio:randwrite:256M:4k:direct:libaio:{16,8,4,2}.out \
+## 		fio:randwrite:256M:{?,??,???}k:direct:libaio:1.out
+
