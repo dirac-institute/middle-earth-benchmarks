@@ -14,7 +14,7 @@ if (!-d $pdir) { mkdir $pdir or die "Cannot mkdir $pdir: $!\n" ; }
 @ARGV or die "Usage: Plot bw|iops|lat datafile ...\n" ;
 
 my $stat = shift @ARGV ;
-my %stat = map { $_, 1 } qw [ bw iops lat clat slat ] ;
+my %stat = map { $_, 1 } qw [ bw iops lat clat slat bir lir clr slr cslr ] ;
 die "Bad statistic request: $stat!\n" unless $stat{$stat} ;
 
 foreach my $file (@ARGV)
@@ -124,6 +124,46 @@ foreach my $file (@ARGV)
 	    $count	=    $job->{$rwx}{slat_ns}{N} ;		# 138603
 	    }
 
+	  elsif ($stat eq "bir") #
+	    {
+	    my $bw	= $job->{$rwx}{bw_mean} ;		# 2365096.9456
+	    my $iops	= $job->{$rwx}{iops_mean} ;		# 2309.6649
+	    die "Bad bs: [$bs]\n" unless $bs =~ /^(\d+)k$/ ;
+	    my $blksz	= $1 ;
+	    $mean	= $bw / ( $blksz * $iops ) ;
+	    }
+
+	  elsif ($stat eq "lir") #
+	    {
+	    my $iops	= $job->{$rwx}{iops_mean} ;		# 2309.6649
+	    my $lat	= $job->{$rwx}{lat_ns}{mean} ;		# 20783212.9199
+	    $mean	= $iops * $lat / $numjobs / $iodepth / 10**9 ; 
+	    }
+
+	  elsif ($stat eq "clr") #
+	    {
+	    my $lat	= $job->{$rwx}{lat_ns}{mean} ;		# 20783212.9199
+	    my $clat	= $job->{$rwx}{clat_ns}{mean} ;		# 20783212.9199
+	    my $slat	= $job->{$rwx}{slat_ns}{mean} ;		# 20783212.9199
+	    $mean	= $clat / $lat ;
+	    }
+
+	  elsif ($stat eq "slr") #
+	    {
+	    my $lat	= $job->{$rwx}{lat_ns}{mean} ;		# 20783212.9199
+	    my $clat	= $job->{$rwx}{clat_ns}{mean} ;		# 20783212.9199
+	    my $slat	= $job->{$rwx}{slat_ns}{mean} ;		# 20783212.9199
+	    $mean	= $slat / $lat ;
+	    }
+
+	  elsif ($stat eq "cslr") #
+	    {
+	    my $lat	= $job->{$rwx}{lat_ns}{mean} ;		# 20783212.9199
+	    my $clat	= $job->{$rwx}{clat_ns}{mean} ;		# 20783212.9199
+	    my $slat	= $job->{$rwx}{slat_ns}{mean} ;		# 20783212.9199
+	    $mean	= ( $clat + $slat ) / $lat ;
+	    }
+
 	  push @{$data{$numjobs}}, $mean ;
 	  }
 
@@ -206,6 +246,36 @@ elsif ($stat eq "slat")
   {
   $ylabel = "S-Latency us" ;
   $yrange = "[0:*]" ;
+  }
+
+elsif ($stat eq "bir")
+  {
+  $ylabel = "BW / ( BS * IOPS )" ;
+  $yrange = "[*<0.99:1.01<*]" ;
+  }
+
+elsif ($stat eq "lir")
+  {
+  $ylabel = "Lat * IOPS / NumJobs / IODepth" ;
+  $yrange = "[*<0.99:1.01<*]" ;
+  }
+
+elsif ($stat eq "clr")
+  {
+  $ylabel = "C-Lat / Lat" ;
+  $yrange = "[*<0.99:1.01<*]" ;
+  }
+
+elsif ($stat eq "slr")
+  {
+  $ylabel = "S-Lat / Lat" ;
+  $yrange = "[*<0.99:1.01<*]" ;
+  }
+
+elsif ($stat eq "cslr")
+  {
+  $ylabel = "( C-Lat + S-Lat ) / Lat" ;
+  $yrange = "[*<0.99:1.01<*]" ;
   }
 
 else { die "Unknown statistic: $stat\n" ; }
