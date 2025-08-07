@@ -61,12 +61,14 @@ foreach my $file (@ARGV)
 	  die "Error in job [$jobname]\n" if $job->{error} ;
 
 	  ## Job Options:
-	  my $rw	= $job->{"job options"}{rw} ;		## read
-	  my $engine	= $job->{"job options"}{ioengine} ;	## sync
-	  my $iodepth	= $job->{"job options"}{iodepth} ;	## 1
-	  my $direct	= $job->{"job options"}{direct} ;	## 1
-	  my $bs	= $job->{"job options"}{bs} ;		## 4k
-	  my $numjobs	= $job->{"job options"}{numjobs} ;	## 1
+	  my $jo = $job->{"job options"} ;
+	  my $go = $fio->{"global options"} ;
+	  my $rw      = $jo->{rw}       || $go->{rw} ;       ## read
+	  my $engine  = $jo->{ioengine} || $go->{ioengine} ; ## sync
+	  my $iodepth = $jo->{iodepth}  || $go->{iodepth} ;  ## 1
+	  my $direct  = $jo->{direct}   || $go->{direct} ;   ## 1
+	  my $bs      = $jo->{bs}       || $go->{bs} ;       ## 4k
+	  my $numjobs = $jo->{numjobs}  || $go->{numjobs} ;  ## 1
 
 	  my ($min, $max, $mean, $stddev, $count) ;
 
