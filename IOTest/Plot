@@ -14,7 +14,7 @@ if (!-d $pdir) { mkdir $pdir or die "Cannot mkdir $pdir: $!\n" ; }
 @ARGV or die "Usage: Plot bw|iops|lat datafile ...\n" ;
 
 my $stat = shift @ARGV ;
-my %stat = map { $_, 1 } qw [ bw iops lat ] ;
+my %stat = map { $_, 1 } qw [ bw iops lat clat slat ] ;
 die "Bad statistic request: $stat!\n" unless $stat{$stat} ;
 
 foreach my $file (@ARGV)
@@ -104,6 +104,26 @@ foreach my $file (@ARGV)
 	    $count	=    $job->{$rwx}{lat_ns}{N} ;		# 138603
 	    }
 
+	  elsif ($stat eq "clat") # usec
+	    {
+	    my $s	= 1/1000 ;				# ns
+	    $min	= $s*$job->{$rwx}{clat_ns}{min} ;	# 107333
+	    $max	= $s*$job->{$rwx}{clat_ns}{max} ;	# 61317713
+	    $mean	= $s*$job->{$rwx}{clat_ns}{mean} ;	# 20783212.9199
+	    $stddev	= $s*$job->{$rwx}{clat_ns}{stddev} ;	# 14398279.8821
+	    $count	=    $job->{$rwx}{clat_ns}{N} ;		# 138603
+	    }
+
+	  elsif ($stat eq "slat") # usec
+	    {
+	    my $s	= 1/1000 ;				# ns
+	    $min	= $s*$job->{$rwx}{slat_ns}{min} ;	# 107333
+	    $max	= $s*$job->{$rwx}{slat_ns}{max} ;	# 61317713
+	    $mean	= $s*$job->{$rwx}{slat_ns}{mean} ;	# 20783212.9199
+	    $stddev	= $s*$job->{$rwx}{slat_ns}{stddev} ;	# 14398279.8821
+	    $count	=    $job->{$rwx}{slat_ns}{N} ;		# 138603
+	    }
+
 	  push @{$data{$numjobs}}, $mean ;
 	  }
 
@@ -173,7 +193,19 @@ elsif ($stat eq "iops")
 elsif ($stat eq "lat")
   {
   $ylabel = "Latency us" ;
-  $yrange = "[0:2<*]" ;
+  $yrange = "[0:*]" ;
+  }
+
+elsif ($stat eq "clat")
+  {
+  $ylabel = "C-Latency us" ;
+  $yrange = "[0:*]" ;
+  }
+
+elsif ($stat eq "slat")
+  {
+  $ylabel = "S-Latency us" ;
+  $yrange = "[0:*]" ;
   }
 
 else { die "Unknown statistic: $stat\n" ; }
