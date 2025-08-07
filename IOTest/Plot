@@ -70,36 +70,38 @@ foreach my $file (@ARGV)
 	  my $bs      = $jo->{bs}       || $go->{bs} ;       ## 4k
 	  my $numjobs = $jo->{numjobs}  || $go->{numjobs} ;  ## 1
 
+	  my $rwx = $rw =~ /write$/ ? "write" : "read" ;
+
 	  my ($min, $max, $mean, $stddev, $count) ;
 
 	  if ($stat eq "bw") # GB/s
 	    {
 	    my $s	= 1024/1_000_000_000 ;			# KiB/s
-	    $min	= $s*$job->{read}{bw_min} ;		# 2084864
-	    $max	= $s*$job->{read}{bw_max} ;		# 2648064
-	    $mean	= $s*$job->{read}{bw_mean} ;		# 2365096.9456
-	    $stddev	= $s*$job->{read}{bw_dev} ;		# 2369.756549
-	    $count	= $job->{read}{bw_samples} ;		# 5728
+	    $min	= $s*$job->{$rwx}{bw_min} ;		# 2084864
+	    $max	= $s*$job->{$rwx}{bw_max} ;		# 2648064
+	    $mean	= $s*$job->{$rwx}{bw_mean} ;		# 2365096.9456
+	    $stddev	= $s*$job->{$rwx}{bw_dev} ;		# 2369.756549
+	    $count	=    $job->{$rwx}{bw_samples} ;		# 5728
 	    }
 
 	  elsif ($stat eq "iops") # kIOPS
 	    {
 	    my $s	= 1/1_000 ;				# IOPS
-	    $min	= $s*$job->{read}{iops_min} ;		# 2036
-	    $max	= $s*$job->{read}{iops_max} ;		# 2586
-	    $mean	= $s*$job->{read}{iops_mean} ;		# 2309.6649
-	    $stddev	= $s*$job->{read}{iops_stddev} ;	# 2.314215
-	    $count	= $job->{read}{iops_samples} ;		# 5728
+	    $min	= $s*$job->{$rwx}{iops_min} ;		# 2036
+	    $max	= $s*$job->{$rwx}{iops_max} ;		# 2586
+	    $mean	= $s*$job->{$rwx}{iops_mean} ;		# 2309.6649
+	    $stddev	= $s*$job->{$rwx}{iops_stddev} ;	# 2.314215
+	    $count	=    $job->{$rwx}{iops_samples} ;	# 5728
 	    }
 
 	  elsif ($stat eq "lat") # usec
 	    {
 	    my $s	= 1/1000 ;				# ns
-	    $min	= $s*$job->{read}{lat_ns}{min} ;	# 107333
-	    $max	= $s*$job->{read}{lat_ns}{max} ;	# 61317713
-	    $mean	= $s*$job->{read}{lat_ns}{mean} ;	# 20783212.9199
-	    $stddev	= $s*$job->{read}{lat_ns}{stddev} ;	# 14398279.8821
-	    $count	= $job->{read}{lat_ns}{N} ;		# 138603
+	    $min	= $s*$job->{$rwx}{lat_ns}{min} ;	# 107333
+	    $max	= $s*$job->{$rwx}{lat_ns}{max} ;	# 61317713
+	    $mean	= $s*$job->{$rwx}{lat_ns}{mean} ;	# 20783212.9199
+	    $stddev	= $s*$job->{$rwx}{lat_ns}{stddev} ;	# 14398279.8821
+	    $count	=    $job->{$rwx}{lat_ns}{N} ;		# 138603
 	    }
 
 	  push @{$data{$numjobs}}, $mean ;
