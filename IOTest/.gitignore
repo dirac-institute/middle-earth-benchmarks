@@ -1,2 +1,3 @@
 # Ignore any plot output files
 *.png
+*.gif
