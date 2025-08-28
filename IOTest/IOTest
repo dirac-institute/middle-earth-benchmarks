@@ -127,7 +127,7 @@ DDev=$(findmnt -no source -T $DDir)
 #
 # Set up a temporary directory to hold intermediate files
 
-TMPDIR=/run/user/$UID/ReadTest.$$
+TMPDIR=/run/user/$UID/IOTest.$$
 mkdir -p $TMPDIR || die Cannot mkdir $TMPDIR
 trap "rm -rf $TMPDIR ; exit" 0 1 2 3 15
 
